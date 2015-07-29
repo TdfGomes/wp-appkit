@@ -18,7 +18,8 @@ define(function (require) {
           Hooks               = require('core/lib/hooks'),
 		  Stats               = require('core/stats'),
 		  Addons              = require('core/addons-internal'),
-          Sha256              = require('core/lib/sha256');
+          Sha256              = require('core/lib/sha256'),
+          DeepLink			  = require( 'core/modules/deep-link' );
 
 	  var app = {};
 
@@ -46,7 +47,7 @@ define(function (require) {
 
 	  var current_custom_page = null;
 	  var custom_routes = {};
-	  
+
 	  app.getCurrentCustomPage = function(){
 		  return current_custom_page;
 	  };
@@ -67,13 +68,13 @@ define(function (require) {
 	  app.addCustomRoute = function( fragment, template, data ) {
 		  custom_routes[fragment] = { template: template, data: data };
 	  };
-	  
+
 	  app.removeCustomRoute = function( fragment ) {
 		  if( custom_routes.hasOwnProperty(fragment) ) {
 			  delete custom_routes[fragment];
 		  }
 	  };
-	
+
 	  app.getCustomRoute = function( fragment ) {
 		  var route = {};
 		  if( custom_routes.hasOwnProperty(fragment) ) {
@@ -81,7 +82,7 @@ define(function (require) {
 		  }
 		  return route;
 	  };
-	  
+
 	  //--------------------------------------------------------------------------
 	  //App params :
 	  //Params that can be changed by themes dynamically : themes can freely change
@@ -141,7 +142,7 @@ define(function (require) {
 		 * Hook : filter 'default-route' : use this to define your own default route
 		 */
 		default_route = Hooks.applyFilters('default-route',default_route,[Stats.getStats(),is_app_launch]);
-		  
+
 		if( default_route != '' ){
 			app.router.setDefaultRoute(default_route);
 		}
@@ -153,7 +154,8 @@ define(function (require) {
 
 		var default_route = app.resetDefaultRoute(true);
 
-		var launch_route = default_route;
+		// Pass default_route to DeepLink module so that it can define the launch_route regarding the provided URL if any
+		var launch_route = DeepLink.getLaunchRoute( default_route );
 
 		/**
 		 * Use the 'launch-route' filter to display a specific screen at app launch
@@ -162,9 +164,9 @@ define(function (require) {
 		 * to a choosen page in the "info:app-ready" event for example.
 		 */
 		launch_route = Hooks.applyFilters('launch-route',launch_route,[Stats.getStats()]);
-		
+
 		Hooks.doActions('pre-start-router',[launch_route,Stats.getStats()]);
-		
+
 		if( launch_route.length > 0 ){
 			Backbone.history.start();
 			//Navigate to the launch_route :
@@ -235,7 +237,7 @@ define(function (require) {
 	  app.getQueriedScreen = function(){
 		  return queried_screen_data;
 	  };
-	  
+
 	  /**
 	   * Pushes the queried screen to the history stack according to the screen type and where we're from.
 	   */
@@ -302,9 +304,9 @@ define(function (require) {
 				  history_action = 'empty';
 			  }
 			}
-			
+
 			history_action = Hooks.applyFilters( 'make-history', history_action, [ history_stack, queried_screen_data, current_screen, previous_screen ] );
-			
+
 			switch ( history_action ) {
 				case 'empty-then-push':
 					history_stack = [];
@@ -379,7 +381,7 @@ define(function (require) {
                 }
             }
         }
-		
+
 		current_screen_global = Hooks.applyFilters( 'current-screen-global', current_screen_global, [screen_data, global] );
 
         return current_screen_global;
@@ -396,10 +398,10 @@ define(function (require) {
 	  //collections of collections won't work :-(
 	  var globals_keys = new Globals;
 	  app.globals = {};
-	  
+
 	app.getComponents = function( filter ) {
 		var components = [];
-		
+
 		if ( _.isObject( filter ) ) {
 			if ( filter.type ) {
 				components = app.components.where( { type: filter.type } );
@@ -410,10 +412,10 @@ define(function (require) {
 
 		return components;
 	};
-	
+
 	app.getNavigationComponents = function( filter ) {
 		var navigation_components = [];
-		
+
 		app.navigation.each( function( element ) {
 			var component = app.components.get( element.get( 'component_id' ) );
 			if ( component ) {
@@ -426,7 +428,7 @@ define(function (require) {
 				}
 			}
 		} );
-		
+
 		return navigation_components;
 	};
 
@@ -463,7 +465,7 @@ define(function (require) {
 
 	  //--------------------------------------------------------------------------
 	  //App synchronization :
-	  
+
 	  app.sync = function(cb_ok,cb_error,force_reload){
 
 		  var force = force_reload != undefined && force_reload;
@@ -524,43 +526,43 @@ define(function (require) {
 		  }});
 
       };
-	  
+
 	  var syncWebService = function(cb_ok,cb_error,force_reload){
 			var token = getToken( 'synchronization' );
 			var ws_url = token + '/synchronization/';
 
 			/**
-			* Filter 'web-service-params' : use this to send custom key/value formated  
-			* data along with the web service. Those params are passed to the server 
+			* Filter 'web-service-params' : use this to send custom key/value formated
+			* data along with the web service. Those params are passed to the server
 			* (via $_GET) when calling the web service.
-			* 
+			*
 			* Filtered data : web_service_params : JSON object where you can add your custom web service params
-			* Filter arguments : 
+			* Filter arguments :
 			* - web_service_name : string : name of the current web service ('synchronization' here).
 			*/
 			var web_service_params = Hooks.applyFilters('web-service-params',{},['synchronization']);
-			  
+
 			//Build the ajax query :
 			var ajax_args = {
 				timeout: 40000,
 				data: web_service_params
 			};
-			
+
 			/**
 			 * Filter 'ajax-args' : allows to customize the web service jQuery ajax call.
-			 * Any jQuery.ajax() arg can be passed here except for : 'url', 'type', 'dataType', 
+			 * Any jQuery.ajax() arg can be passed here except for : 'url', 'type', 'dataType',
 			 * 'success' and 'error' that are reserved by app core.
-			 * 
+			 *
 			 * Filtered data : ajax_args : JSON object containing jQuery.ajax() arguments.
-			 * Filter arguments : 
+			 * Filter arguments :
 			 * - web_service_name : string : name of the current web service ('synchronization' here).
 			 */
 			ajax_args = Hooks.applyFilters( 'ajax-args', ajax_args, ['synchronization'] );
-			
+
 			ajax_args.url = Config.wp_ws_url + ws_url;
-			
+
 			ajax_args.type = 'GET';
-			
+
 			ajax_args.dataType = 'json';
 
 			ajax_args.success = function( data ) {
@@ -589,9 +591,9 @@ define(function (require) {
 								var items = new Items.Items({global:global_id});
 								items.resetAll();
 							});
-							
+
 							app.globals = {};
-							
+
 							//Then reload new items from web service :
 							globals_keys.resetAll();
 							_.each( data.globals, function( global, key, list ) {
@@ -637,7 +639,7 @@ define(function (require) {
 							cb_error
 						);
 					}
-					
+
 				} else {
 					app.triggerError(
 						'synchro:wrong-format',
@@ -647,7 +649,7 @@ define(function (require) {
 				}
 
 			};
-		  
+
 			ajax_args.error = function( jqXHR, textStatus, errorThrown ) {
 				app.triggerError(
 					'synchro:ajax',
@@ -655,7 +657,7 @@ define(function (require) {
 					cb_error
 				);
 			};
-		  
+
 			$.ajax( ajax_args );
 	  };
 
@@ -694,38 +696,38 @@ define(function (require) {
     	  var post = app.globals['posts'].get(post_id);
 
     	  if( post != undefined ){
-			  
+
 			/**
-			* Filter 'web-service-params' : use this to send custom key/value formated  
-			* data along with the web service. Those params are passed to the server 
+			* Filter 'web-service-params' : use this to send custom key/value formated
+			* data along with the web service. Those params are passed to the server
 			* (via $_GET) when calling the web service.
-			* 
+			*
 			* Filtered data : web_service_params : JSON object where you can add your custom web service params
-			 * Filter arguments : 
+			 * Filter arguments :
 			 * - web_service_name : string : name of the current web service ('get-post-comments' here).
 			*/
 			var web_service_params = Hooks.applyFilters('web-service-params',{},['get-post-comments']);
-			  
+
 			//Build the ajax query :
 			var ajax_args = {
 				data: web_service_params
 			};
-			
+
 			/**
 			 * Filter 'ajax-args' : allows to customize the web service jQuery ajax call.
-			 * Any jQuery.ajax() arg can be passed here except for : 'url', 'type', 'dataType', 
+			 * Any jQuery.ajax() arg can be passed here except for : 'url', 'type', 'dataType',
 			 * 'success' and 'error' that are reserved by app core.
-			 * 
+			 *
 			 * Filtered data : ajax_args : JSON object containing jQuery.ajax() arguments.
-			 * Filter arguments : 
+			 * Filter arguments :
 			 * - web_service_name : string : name of the current web service ('get-post-comments' here).
 			 */
 			ajax_args = Hooks.applyFilters( 'ajax-args', ajax_args, ['get-post-comments'] );
-			
+
 			ajax_args.url = Config.wp_ws_url + ws_url;
-			
+
 			ajax_args.type = 'GET';
-			
+
 			ajax_args.dataType = 'json';
 
 			ajax_args.success = function( data ) {
@@ -734,7 +736,7 @@ define(function (require) {
 				} );
 				cb_ok( comments, post );
 			};
-			
+
 			ajax_args.error = function( jqXHR, textStatus, errorThrown ) {
 				app.triggerError(
 					'comments:ajax',
@@ -742,9 +744,9 @@ define(function (require) {
 					cb_error
 				);
 			};
-			  
+
 	    	$.ajax( ajax_args );
-			
+
     	  }else{
     		  app.triggerError(
     			  'comments:post-not-found',
@@ -783,16 +785,16 @@ define(function (require) {
 					ws_url += '?before_item=' + last_item_id;
 
 					/**
-					* Filter 'web-service-params' : use this to send custom key/value formated  
-					* data along with the web service. Those params are passed to the server 
+					* Filter 'web-service-params' : use this to send custom key/value formated
+					* data along with the web service. Those params are passed to the server
 					* (via $_GET) when calling the web service.
-					* 
+					*
 					* Filtered data : web_service_params : JSON object where you can add your custom web service params
-					* Filter arguments : 
+					* Filter arguments :
 					* - web_service_name : string : name of the current web service ('get-more-of-component' here).
 					*/
 					var web_service_params = Hooks.applyFilters('web-service-params',{},['get-more-of-component']);
-			  
+
 					//Build the ajax query :
 					var ajax_args = {
 						data: web_service_params
@@ -800,11 +802,11 @@ define(function (require) {
 
 					/**
 					 * Filter 'ajax-args' : allows to customize the web service jQuery ajax call.
-					 * Any jQuery.ajax() arg can be passed here except for : 'url', 'type', 'dataType', 
+					 * Any jQuery.ajax() arg can be passed here except for : 'url', 'type', 'dataType',
 					 * 'success' and 'error' that are reserved by app core.
-					 * 
+					 *
 					 * Filtered data : ajax_args : JSON object containing jQuery.ajax() arguments.
-					 * Filter arguments : 
+					 * Filter arguments :
 					 * - web_service_name : string : name of the current web service ('get-more-of-component' here).
 					 */
 					ajax_args = Hooks.applyFilters( 'ajax-args', ajax_args, [ 'get-more-of-component' ] );
@@ -878,10 +880,10 @@ define(function (require) {
 				}
 			}
       };
-	  
+
 	/**
 	 * Update items for the given global
-	 * 
+	 *
 	 * @param {string} global The global we want to update items for
 	 * @param {JSON Object} items Global items WITH ITEM ID AS KEY
 	 * @param {string} type 'update' to merge items, or 'replace' to delete then replace by new items
@@ -889,10 +891,10 @@ define(function (require) {
 	 * @returns {JSON object} feedback data
 	 */
 	var update_global_items = function( global, items, type, persistent ) {
-		
+
 		type = ( type !== undefined ) ? type : 'update';
 		persistent = ( persistent !== undefined ) && persistent === true;
-		
+
 		var result = { ok: true, message: '', type: '', data: {} };
 
 		if ( type !== 'update' && type !== 'replace' ) {
@@ -901,19 +903,19 @@ define(function (require) {
 			result.message = 'Wrong type : '+ type;
 			return result;
 		}
-		
+
 		//Create the global if does not exist :
 		if ( !app.globals.hasOwnProperty( global ) ) {
 			app.globals[global] = new Items.Items( [], { global: global } );
 		}
-		
+
 		var current_items = app.globals[global];
-		
+
 		var original_ids = [ ];
 		_.each( current_items, function( item, id ) {
 			original_ids.push( id );
 		} );
-		
+
 		if ( type == "replace" ) {
 			current_items.resetAll();
 		}
@@ -944,16 +946,16 @@ define(function (require) {
 
 		return result;
 	};
-	
+
 	 /**
 	 * Update a component
-	 * 
+	 *
 	 * @param JSON object new_component Component containing new data
 	 * @param array new_globals Array of new items referenced by the new component
 	 * @param string type Type of update. Can be :
-	 * - "update" : merge new with existing component data, 
+	 * - "update" : merge new with existing component data,
 	 * - "replace" : delete current component data and replace with new
-	 * - "replace-keep-global-items" (default) : for list components : replace component ids and merge global items 
+	 * - "replace-keep-global-items" (default) : for list components : replace component ids and merge global items
 	 * @param boolean persistent (default false). If true, new data is stored in local storage.
 	 * @returns {JSON object} feedback data
 	 */
@@ -961,7 +963,7 @@ define(function (require) {
 
 		type = ( type !== undefined ) ? type : 'replace-keep-global-items';
 		persistent = ( persistent !== undefined ) && persistent === true;
-		
+
 		var result = { ok:true, message:'', type: '', data: {} };
 
 		if ( !new_component.data || !new_component.slug ) {
@@ -971,7 +973,7 @@ define(function (require) {
 			result.message = 'Wrong component format';
 			return result;
 		}
-		
+
 		if ( type !== 'update' && type !== 'replace' && type !== 'replace-keep-global-items' ) {
 			result.ok = false;
 			result.type = 'bad-format';
@@ -988,7 +990,7 @@ define(function (require) {
 			if ( new_component_data.hasOwnProperty( 'ids' ) ) { //List component
 
 				if( new_component.global ) {
-					
+
 					var global = new_component.global;
 					if ( !app.globals.hasOwnProperty( global ) ) {
 						var items = new Items.Items( [], { global: global } );
@@ -1032,7 +1034,7 @@ define(function (require) {
 					result.type = 'bad-format';
 					result.message = 'List component must have a global';
 				}
-				
+
 			} else { //Non list component
 
 				if ( type == "update" ) {
@@ -1046,15 +1048,15 @@ define(function (require) {
 				if ( persistent ) {
 					existing_component.save();
 				}
-				
+
 				if( new_component.global ) { //Page component for example
-					
+
 					var global = new_component.global;
 					if ( !app.globals.hasOwnProperty( global ) ) {
 						var items = new Items.Items( [], { global: global } );
 						app.globals[global] = items;
 					}
-						
+
 					var current_items = app.globals[global];
 					if ( type == "replace" ) {
 						current_items.resetAll();
@@ -1067,25 +1069,25 @@ define(function (require) {
 					if ( persistent ) {
 						current_items.save();
 					}
-					
+
 				}
 
 				result.data = { component: existing_component };
 
 			}
-			
+
 		} else {
 			result.ok = false;
 			result.type = 'not-found';
 			result.message = 'Component not found : ' + new_component.slug;
 		}
-		
+
 		return result;
 	};
-	
+
 	/**
 	 * Deletes items for the given global.
-	 * 
+	 *
 	 * @param {string} global
 	 * @param {boolean} persistent If true, will be stored in local storage
 	 */
@@ -1093,10 +1095,10 @@ define(function (require) {
 		persistent = ( persistent !== undefined ) && persistent === true;
 		update_global_items( global, {}, 'replace', persistent );
 	};
-	
+
 	/**
-	 * Live query web service 
-	 * 
+	 * Live query web service
+	 *
 	 * @param JSON Object web_service_params Any params that you want to send to the server.
 	 *        The following params are automatically recognised and interpreted on server side :
 	 *        - wpak_component_slug : { string | Array of string } components to make query on
@@ -1107,32 +1109,32 @@ define(function (require) {
 	 * @param options JSON Object : allowed settings :
 	 * - auto_interpret_result Boolean (default true). If false, web service answer must be interpreted in the cb_ok callback.
 	 * - type String : can be one of :
-	 *       -- "update" : merge new with existing component data, 
+	 *       -- "update" : merge new with existing component data,
 	 *       -- "replace" : delete current component data and replace with new
-	 *       -- "replace-keep-global-items" (default) : for list components : replace component ids and merge global items 
+	 *       -- "replace-keep-global-items" (default) : for list components : replace component ids and merge global items
 	 * - persistent Boolean (default false). If true, new data is stored in local storage.
 	 */
 	app.liveQuery = function( web_service_params, cb_ok, cb_error, options ) {
-		
+
 		//auto_interpret_result defaults to true :
 		var auto_interpret_result = !options.hasOwnProperty('auto_interpret_result') || options.auto_interpret_result === true;
-		
+
 		//interpretation_type defaults to 'update' :
 		var interpretation_type = options.hasOwnProperty('type') ? options.type : 'update';
-		
+
 		//persistent defaults to false :
 		var persistent = options.hasOwnProperty('persistent') && options.persistent === true;
-		
+
 		var token = getToken( 'live-query' );
 		var ws_url = token + '/live-query';
-		
+
 		/**
-		* Filter 'web-service-params' : use this to send custom key/value formatted  
-		* data along with the web service. Those params are passed to the server 
+		* Filter 'web-service-params' : use this to send custom key/value formatted
+		* data along with the web service. Those params are passed to the server
 		* (via $_GET) when calling the web service.
-		* 
+		*
 		* Filtered data : web_service_params : JSON object where you can add your custom web service params
-		* Filter arguments : 
+		* Filter arguments :
 		* - web_service_name : string : name of the current web service ('live-query' here).
 		*/
 		web_service_params = Hooks.applyFilters( 'web-service-params', web_service_params, [ 'live-query' ] );
@@ -1144,11 +1146,11 @@ define(function (require) {
 
 		/**
 		 * Filter 'ajax-args' : allows to customize the web service jQuery ajax call.
-		 * Any jQuery.ajax() arg can be passed here except for : 'url', 'type', 'dataType', 
+		 * Any jQuery.ajax() arg can be passed here except for : 'url', 'type', 'dataType',
 		 * 'success' and 'error' that are reserved by app core.
-		 * 
+		 *
 		 * Filtered data : ajax_args : JSON object containing jQuery.ajax() arguments.
-		 * Filter arguments : 
+		 * Filter arguments :
 		 * - web_service_name : string : name of the current web service ('get-more-of-component' here).
 		 */
 		ajax_args = Hooks.applyFilters( 'ajax-args', ajax_args, [ 'live-query' ] );
@@ -1164,10 +1166,10 @@ define(function (require) {
 			if ( answer.result && answer.result.status == 1 ) {
 
 				//If we asked to auto interpret and the ws answer is correctly
-				//formated, we do the correct treatment according to answer fields : 
+				//formated, we do the correct treatment according to answer fields :
 				if ( auto_interpret_result ) {
-					
-					//See if components data were retured : if so, 
+
+					//See if components data were retured : if so,
 					//update the corresponding component(s) :
 					var new_components = {};
 					if ( answer.components ) {
@@ -1175,26 +1177,26 @@ define(function (require) {
 					} else if( answer.component ) {
 						new_components[answer.component.slug] = answer.component;
 					}
-					
+
 					if( !_.isEmpty( new_components ) ) {
-						
+
 						var error_message = '';
 						var update_results = {};
-						
+
 						_.each( new_components, function( component ) {
 
 							var result = update_component( component, answer.globals, interpretation_type, persistent );
 							update_results[component.slug] = result;
-							
+
 							if ( result.ok ) {
 								Utils.log( 'Live query update component "'+ component.slug +'" OK.', result );
 							} else {
 								Utils.log( 'Error : Live query : update_component "' + component.slug + '"', result, component );
 								error_message += ( result.message + ' ' );
 							}
-						
+
 						} );
-						
+
 						if ( error_message === '' ) {
 							if ( cb_ok ) {
 								cb_ok( answer, update_results );
@@ -1206,20 +1208,20 @@ define(function (require) {
 								cb_error
 							);
 						}
-						
+
 					} else if ( answer.globals && !_.isEmpty( answer.globals ) ) {
-						
+
 						//No component returned, but some global items :
 						//update current global items with new items sent :
-						
+
 						var error_message = '';
 						var update_results = {};
-						
+
 						_.each( answer.globals, function( items, global ) {
-							
+
 							var result = update_global_items( global, items, interpretation_type, persistent );
 							update_results[global] = result;
-							
+
 							if ( result.ok ) {
 								Utils.log( 'Live query update global "'+ global +'" OK.', result );
 							} else {
@@ -1228,7 +1230,7 @@ define(function (require) {
 							}
 
 						} );
-						
+
 						if ( error_message === '' ) {
 							if ( cb_ok ) {
 								cb_ok( answer, update_results );
@@ -1240,7 +1242,7 @@ define(function (require) {
 								cb_error
 							);
 						}
-						
+
 					} else {
 						app.triggerError(
 							'live-query:no-auto-interpret-action-found',
@@ -1248,19 +1250,19 @@ define(function (require) {
 							cb_error
 						);
 					}
-					
+
 				} else {
-					
+
 					Utils.log( 'Live query ok (no auto interpret). Web Service answer : "', answer, ajax_args );
-					
+
 					//The 'live-query' web service answer must be interpreted
 					//manually in cb_ok() :
 					if ( cb_ok ) {
 						cb_ok( answer );
 					}
-					
+
 				}
-				
+
 			} else {
 				app.triggerError(
 					'live-query:ws-return-error',
@@ -1269,7 +1271,7 @@ define(function (require) {
 				);
 			}
 		};
-		
+
 		ajax_args.error = function( jqXHR, textStatus, errorThrown ) {
 			app.triggerError(
 				'live-query:ajax',
@@ -1305,7 +1307,7 @@ define(function (require) {
     	  var component_data = null;
 
     	  var component = app.components.get(component_id);
-		  
+
     	  if( component ){
     		  var component_type = component.get('type');
     		  switch(component_type){
@@ -1448,7 +1450,7 @@ define(function (require) {
 
     	  return items;
       };
-	  
+
 	  app.getGlobalItemsSlice = function( global_key, items_ids ) {
 			var items = new Items.ItemsSlice();
 
@@ -1485,7 +1487,7 @@ define(function (require) {
 	  /**
        * App options:
        */
-	  
+
 	  // Retrieve all existing options
 	  var fetchOptions = function( callback ){
       	app.options.fetch( {
@@ -1498,7 +1500,7 @@ define(function (require) {
 	      	}
       	});
 	  };
-	  
+
       app.saveOptions = function( callback ) {
       	// Retrieve options from Config and store them locally
       	_.each( Config.options, function( value, key, list ) {
@@ -1515,7 +1517,7 @@ define(function (require) {
 	  		callback();
 	  	}
       };
-	  
+
 	  /**
        * App init:
        *  - set options
@@ -1524,26 +1526,26 @@ define(function (require) {
       app.initialize = function ( callback ) {
 
 		fetchOptions(function(){
-			
+
 			Addons.initialize( function(){
-				
+
 				if( Config.debug_mode == 'on' ) {
 					require( ['core/views/debug', 'jquery.velocity'], function( DebugView ) {
 						var debugView = new DebugView();
 						debugView.render();
 					});
 				}
-				
+
 				// If a callback was passed, call it
 				if( undefined !== callback ) {
 					callback();
 				}
 			});
-			
+
 		});
-      	
+
       };
-	  
+
 	//--------------------------------------------------------------------------
 	//Network : handle network state if the Network phonegap plugin is available
 
